@@ -1,5 +1,5 @@
 {
-  "name": "@zasend/client",
+  "name": "zasend",
   "version": "0.1.0",
   "description": "Node.js transactional email API client for zaSend",
   "main": "src/index.js",
