@@ -1,4 +1,4 @@
-# @lr2bmail/zasend
+# zasend-node
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-blue.svg)](package.json)
@@ -20,13 +20,13 @@ The client stays close to the raw API. It has no runtime dependencies and uses t
 ## Install
 
 ```bash
-npm install @lr2bmail/zasend
+npm install zasend-node
 ```
 
 ## Quick Start
 
 ```js
-const { ZaSend } = require("@lr2bmail/zasend");
+const { ZaSend } = require("zasend-node");
 
 const zasend = new ZaSend(process.env.ZASEND_API_KEY);
 
@@ -81,7 +81,7 @@ await zasend.sendTemplateEmail({
 ## Next.js / Express Example
 
 ```js
-const { ZaSend } = require("@lr2bmail/zasend");
+const { ZaSend } = require("zasend-node");
 
 const zasend = new ZaSend(process.env.ZASEND_API_KEY);
 
@@ -100,7 +100,7 @@ async function sendSignupEmail(email) {
 zaSend signs webhook payloads with HMAC-SHA256. Verify the raw request body before trusting webhook data.
 
 ```js
-const { verifyWebhookSignature } = require("@lr2bmail/zasend");
+const { verifyWebhookSignature } = require("zasend-node");
 
 const ok = verifyWebhookSignature(
   request.rawBody,
@@ -125,7 +125,7 @@ const ok = verifyWebhookSignature(
 ## Error Handling
 
 ```js
-const { APIError, RateLimitError, ValidationError, ZaSend } = require("@lr2bmail/zasend");
+const { APIError, RateLimitError, ValidationError, ZaSend } = require("zasend-node");
 
 try {
   await new ZaSend(process.env.ZASEND_API_KEY).sendEmail({

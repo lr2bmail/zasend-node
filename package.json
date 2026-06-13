@@ -1,5 +1,5 @@
 {
-  "name": "@lr2bmail/zasend",
+  "name": "zasend-node",
   "version": "0.1.0",
   "description": "Node.js transactional email API client for zaSend",
   "main": "src/index.js",
