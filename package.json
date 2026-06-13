@@ -1,0 +1,43 @@
+{
+  "name": "@zasend/client",
+  "version": "0.1.0",
+  "description": "Node.js transactional email API client for zaSend",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "email",
+    "transactional-email",
+    "email-api",
+    "smtp",
+    "node-email",
+    "nextjs-email",
+    "express-email",
+    "webhooks",
+    "dkim",
+    "zasend"
+  ],
+  "author": "zaSend <support@zasend.com>",
+  "license": "MIT",
+  "homepage": "https://zasend.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lr2bmail/zasend-node.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lr2bmail/zasend-node/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ]
+}
