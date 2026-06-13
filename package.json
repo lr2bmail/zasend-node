@@ -1,7 +1,7 @@
 {
   "name": "zasend-node",
-  "version": "0.1.0",
-  "description": "Node.js transactional email API client for zaSend",
+  "version": "0.1.1",
+  "description": "Node.js SDK for the zaSend transactional email API and SMTP service",
   "main": "src/index.js",
   "type": "commonjs",
   "engines": {
@@ -13,13 +13,21 @@
   "keywords": [
     "email",
     "transactional-email",
+    "transactional-email-api",
     "email-api",
+    "email-sdk",
+    "email-service",
     "smtp",
+    "smtp-relay",
+    "send-email",
     "node-email",
     "nextjs-email",
     "express-email",
+    "javascript-email",
     "webhooks",
     "dkim",
+    "spf",
+    "dmarc",
     "zasend"
   ],
   "author": "zaSend <support@zasend.com>",
