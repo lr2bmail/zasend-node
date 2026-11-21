@@ -40,7 +40,7 @@ const result = await zasend.sendEmail({
 console.log(result.message_id);
 ```
 
-You can use an Account API Key (`sk_live_...`) for all methods. A Domain Sending Key (`dsk_live_...`) is restricted to sending email from one verified domain.
+You can use an Account API Key (`sk_live_...`) for all methods. A Domain Sending Key (`dsk_live_...`) is restricted to sending email from one verified domain. In the zaSend dashboard the Domain Sending Key is shown as the **SMTP password** for that domain.
 
 ## Send HTML Email
 
@@ -66,6 +66,18 @@ await zasend.sendEmail({
 ```
 
 zaSend returns one queued message per `to` recipient. Suppressed recipients reject the whole request so you can fix the list before sending.
+
+## Batch Send
+
+Up to 100 different emails in one call. A partial failure is not an error: check `failed` and each result's `status`.
+
+```js
+const result = await zasend.sendBatch([
+  { from: "noreply@yourdomain.com", to: "ann@example.com", template: "welcome", variables: { name: "Ann" } },
+  { from: "noreply@yourdomain.com", to: "bob@example.com", subject: "Receipt", text: "Thanks, Bob" },
+]);
+console.log(result.queued, result.failed, result.results);
+```
 
 ## Template Send
 
@@ -97,7 +109,11 @@ async function sendSignupEmail(email) {
 
 ## Webhook Verification
 
+`verifyWebhookSignatureV2(rawBody, secret, req.headers["x-zasend-signature-v2"])` also checks the timestamp and rejects deliveries older than 5 minutes. Prefer it over the older check below.
+
 zaSend signs webhook payloads with HMAC-SHA256. Verify the raw request body before trusting webhook data.
+
+For replay protection, zaSend also sends `X-zaSend-Timestamp` and `X-zaSend-Signature-V2: t=<unix>,v1=<hex>`, where `v1` is HMAC-SHA256 of `"<t>.<raw body>"` with the same secret. Reject deliveries older than a few minutes.
 
 ```js
 const { verifyWebhookSignature } = require("zasend-node");
@@ -156,3 +172,23 @@ try {
 ## License
 
 MIT
+
+## Attachments
+
+Attachments are enabled per account. Build them from files and send:
+
+```js
+const { ZaSend, attachmentFromFile } = require("zasend-node");
+
+const client = new ZaSend("sk_live_...", { timeout: 30000 });
+await client.sendEmail(
+  {
+    from: "billing@yourdomain.com",
+    to: "customer@example.com",
+    subject: "Your invoice",
+    text: "Invoice attached.",
+    attachments: [attachmentFromFile("invoice.pdf")],
+  },
+  { idempotencyKey: "order-1042" }, // a retry within 24h returns the first result
+);
+```

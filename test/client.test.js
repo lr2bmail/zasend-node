@@ -8,6 +8,7 @@ const {
   ZaSend,
   ZaSendError,
   verifyWebhookSignature,
+  verifyWebhookSignatureV2,
 } = require("../src");
 
 function fakeResponse(body, options = {}) {
@@ -104,4 +105,93 @@ test("client errors inherit from Error", () => {
   assert.ok(new RateLimitError("x") instanceof APIError);
   assert.ok(new ValidationError("x") instanceof APIError);
   assert.ok(new ZaSendError("x") instanceof Error);
+});
+
+test("attachmentFromFile and idempotencyKey", async () => {
+  const os = require("node:os");
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { attachmentFromFile } = require("../src");
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "zasend-")), "invoice.pdf");
+  fs.writeFileSync(file, Buffer.from("%PDF-1.4 hello"));
+  const attachment = attachmentFromFile(file);
+  assert.deepEqual(attachment, { filename: "invoice.pdf", content: "JVBERi0xLjQgaGVsbG8=" });
+  assert.equal(attachmentFromFile(file, "renamed.pdf").filename, "renamed.pdf");
+
+  let requestedInit;
+  const client = new ZaSend("key", {
+    baseUrl: "https://example.test/api/v1",
+    fetch: async (url, init) => {
+      requestedInit = init;
+      return fakeResponse({ success: true, message_id: "msg_1", status: "queued" });
+    },
+  });
+  await client.sendEmail(
+    { from: "noreply@example.com", to: "user@example.com", subject: "Invoice", text: "See attached", attachments: [attachment] },
+    { idempotencyKey: "order-1" },
+  );
+  assert.equal(requestedInit.headers["Idempotency-Key"], "order-1");
+  assert.equal(JSON.parse(requestedInit.body).attachments[0].filename, "invoice.pdf");
+});
+
+test("attachment size and type errors are validation errors", async () => {
+  for (const status of [413, 415]) {
+    const client = new ZaSend("key", { fetch: async () => fakeResponse({ message: "nope" }, { ok: false, status }) });
+    await assert.rejects(client.sendEmail({ from: "a@example.com", to: "b@example.com", subject: "s", text: "t" }), ValidationError);
+  }
+});
+
+test("inbound downloads return Buffers and use the right paths", async () => {
+  const urls = [];
+  const client = new ZaSend("key", {
+    baseUrl: "https://example.test/api/v1",
+    fetch: async (url, init) => {
+      urls.push([url, init.headers.Accept]);
+      return { ok: true, status: 200, statusText: "OK", async arrayBuffer() { return new TextEncoder().encode("%PDF-1.4 hello").buffer; } };
+    },
+  });
+  const bytes = await client.downloadInboundAttachment("msg-1", 0);
+  assert.equal(Buffer.isBuffer(bytes), true);
+  assert.equal(bytes.toString(), "%PDF-1.4 hello");
+  assert.equal((await client.downloadInboundRaw("msg-1")).toString(), "%PDF-1.4 hello");
+  assert.deepEqual(urls, [
+    ["https://example.test/api/v1/inbound/msg-1/attachments/0", "*/*"],
+    ["https://example.test/api/v1/inbound/msg-1/raw", "*/*"],
+  ]);
+});
+
+test("getInboundMessage and download errors", async () => {
+  const ok = new ZaSend("key", { fetch: async () => fakeResponse({ id: "msg-1", attachments: [{ id: 0 }] }) });
+  assert.equal((await ok.getInboundMessage("msg-1")).attachments[0].id, 0);
+  const missing = new ZaSend("key", { fetch: async () => fakeResponse({ message: "Files for this message were not kept." }, { ok: false, status: 404 }) });
+  await assert.rejects(missing.downloadInboundRaw("msg-1"), APIError);
+});
+
+test("sendBatch posts the emails list", async () => {
+  let requestedUrl;
+  let requestedInit;
+  const client = new ZaSend("key", {
+    baseUrl: "https://example.test/api/v1",
+    fetch: async (url, init) => {
+      requestedUrl = url;
+      requestedInit = init;
+      return fakeResponse({ success: false, queued: 1, failed: 1, results: [] }, { status: 207 });
+    },
+  });
+  const result = await client.sendBatch([{ from: "a@example.com", to: "b@example.com" }], { idempotencyKey: "k1" });
+  assert.equal(requestedUrl, "https://example.test/api/v1/emails/batch");
+  assert.equal(JSON.parse(requestedInit.body).emails.length, 1);
+  assert.equal(requestedInit.headers["Idempotency-Key"], "k1");
+  assert.equal(result.failed, 1);
+});
+
+test("verifyWebhookSignatureV2 checks signature and age", () => {
+  const crypto = require("node:crypto");
+  const body = '{"event":"failed"}';
+  const sig = crypto.createHmac("sha256", "s3cret").update(`1700000000.${body}`).digest("hex");
+  const header = `t=1700000000,v1=${sig}`;
+  assert.equal(verifyWebhookSignatureV2(body, "s3cret", header, { now: 1700000100 }), true);
+  assert.equal(verifyWebhookSignatureV2(body, "s3cret", header, { now: 1700001000 }), false);
+  assert.equal(verifyWebhookSignatureV2(`${body} `, "s3cret", header, { now: 1700000100 }), false);
+  assert.equal(verifyWebhookSignatureV2(body, "s3cret", "garbage", { now: 1700000100 }), false);
 });

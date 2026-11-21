@@ -1,4 +1,6 @@
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const DEFAULT_BASE_URL = "https://zasend.com/api/v1";
 
@@ -46,8 +48,19 @@ class ZaSend {
     }
   }
 
-  async sendEmail(message) {
-    return this._request("POST", "/emails/send", message);
+  // `message.attachments` is a list built with attachmentFromFile (or { filename, content: <base64> }).
+  // With options.idempotencyKey a retry of the same request within 24 hours returns the first
+  // result instead of sending again.
+  async sendEmail(message, options = {}) {
+    const headers = options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined;
+    return this._request("POST", "/emails/send", message, headers);
+  }
+
+  // Up to 100 different emails in one call; each item has the fields of sendEmail.
+  // A partial failure is not an error: check `failed` and each item's `status` in `results`.
+  async sendBatch(emails, options = {}) {
+    const headers = options.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined;
+    return this._request("POST", "/emails/batch", { emails }, headers);
   }
 
   async sendTemplateEmail({ from, to, template, variables = {}, cc, bcc, listUnsubscribe, listUnsubscribePost }) {
@@ -61,6 +74,21 @@ class ZaSend {
       list_unsubscribe: listUnsubscribe,
       list_unsubscribe_post: listUnsubscribePost,
     });
+  }
+
+  // A received message with its attachment list (no file content).
+  async getInboundMessage(messageId) {
+    return this._request("GET", `/inbound/${encodeURIComponent(messageId)}`);
+  }
+
+  // The bytes (Buffer) of one attachment of a received message; `index` is the attachment id.
+  async downloadInboundAttachment(messageId, index) {
+    return this._request("GET", `/inbound/${encodeURIComponent(messageId)}/attachments/${Number(index)}`, undefined, undefined, true);
+  }
+
+  // The original received message (.eml) as a Buffer.
+  async downloadInboundRaw(messageId) {
+    return this._request("GET", `/inbound/${encodeURIComponent(messageId)}/raw`, undefined, undefined, true);
   }
 
   async getEmail(messageId) {
@@ -142,12 +170,13 @@ class ZaSend {
     return query ? `${path}?${query}` : path;
   }
 
-  async _request(method, path, body = undefined) {
+  async _request(method, path, body = undefined, extraHeaders = undefined, binary = false) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
     const headers = {
+      ...(extraHeaders || {}),
       Authorization: `Bearer ${this.apiKey}`,
-      Accept: "application/json",
+      Accept: binary ? "*/*" : "application/json",
     };
     const init = { method, headers, signal: controller.signal };
     if (body !== undefined) {
@@ -170,6 +199,9 @@ class ZaSend {
     if (response.status === 204) {
       return null;
     }
+    if (binary && response.ok) {
+      return Buffer.from(await response.arrayBuffer());
+    }
 
     let data = null;
     try {
@@ -185,7 +217,7 @@ class ZaSend {
       if (response.status === 429) {
         throw new RateLimitError(message, response.status, data);
       }
-      if (response.status === 400 || response.status === 422) {
+      if ([400, 413, 415, 422].includes(response.status)) {
         throw new ValidationError(message, response.status, data);
       }
       throw new APIError(`API error ${response.status}: ${message}`, response.status, data);
@@ -193,6 +225,13 @@ class ZaSend {
 
     return data;
   }
+}
+
+function attachmentFromFile(filePath, filename = undefined) {
+  return {
+    filename: filename || path.basename(filePath),
+    content: fs.readFileSync(filePath).toString("base64"),
+  };
 }
 
 function verifyWebhookSignature(payloadBody, secret, signatureHeader) {
@@ -204,6 +243,30 @@ function verifyWebhookSignature(payloadBody, secret, signatureHeader) {
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received));
 }
 
+// Check X-zaSend-Signature-V2 ("t=<unix>,v1=<hmac of '<t>.<body>'>") and reject old deliveries.
+function verifyWebhookSignatureV2(payloadBody, secret, signatureHeader, options = {}) {
+  const tolerance = options.toleranceSeconds ?? 300;
+  const now = options.now ?? Math.floor(Date.now() / 1000);
+  const parts = {};
+  String(signatureHeader || "").split(",").forEach((item) => {
+    const index = item.indexOf("=");
+    if (index > 0) {
+      parts[item.slice(0, index).trim()] = item.slice(index + 1).trim();
+    }
+  });
+  if (!/^\d+$/.test(parts.t || "") || !parts.v1) {
+    return false;
+  }
+  if (Math.abs(now - Number(parts.t)) > tolerance) {
+    return false;
+  }
+  const expected = crypto.createHmac("sha256", secret).update(`${parts.t}.`).update(payloadBody).digest("hex");
+  if (parts.v1.length !== expected.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(parts.v1));
+}
+
 module.exports = {
   APIError,
   DEFAULT_BASE_URL,
@@ -211,5 +274,7 @@ module.exports = {
   ValidationError,
   ZaSend,
   ZaSendError,
+  attachmentFromFile,
   verifyWebhookSignature,
+  verifyWebhookSignatureV2,
 };

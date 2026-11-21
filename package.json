@@ -1,6 +1,6 @@
 {
   "name": "zasend-node",
-  "version": "0.1.1",
+  "version": "0.3.0",
   "description": "Node.js SDK for the zaSend transactional email API and SMTP service",
   "main": "src/index.js",
   "type": "commonjs",
