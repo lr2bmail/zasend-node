@@ -40,7 +40,18 @@ const result = await zasend.sendEmail({
 console.log(result.message_id);
 ```
 
-You can use an Account API Key (`sk_live_...`) for all methods. A Domain Sending Key (`dsk_live_...`) is restricted to sending email from one verified domain. In the zaSend dashboard the Domain Sending Key is shown as the **SMTP password** for that domain.
+### Which key do I need?
+
+Create API keys on the **API keys** page of the dashboard. Each key has an access level and can be limited to one domain:
+
+| Access | Use it for |
+| --- | --- |
+| Sending only | Apps that only send: `sendEmail`, `sendBatch`, `getEmail`, `getRateLimits` |
+| Agent | Sending plus reading received email (`listInboundMessages`, `getInboundMessage`) |
+| Full access | Everything, including domains, templates, webhooks, SMTP passwords and API keys |
+| Custom | Pick permissions: send, status, inbound, smtp, templates, suppressions, webhooks, domains |
+
+If a key lacks a permission the call throws an `APIError` with `status` 403 and `missingPermission` (for example `"inbound"`). SMTP passwords (`smtp_live_...`) are for SMTP apps and don't work with this SDK; older domain keys (`dsk_live_...`) can still send.
 
 ## Send HTML Email
 
@@ -137,6 +148,9 @@ const ok = verifyWebhookSignature(
 | `listSuppressions(options)` / `addSuppression(email, options)` / `deleteSuppression(id)` | Manage suppression list entries |
 | `listWebhooks()` / `createWebhook(url, events)` / `deleteWebhook(id)` | Manage signed delivery webhooks |
 | `listTemplates()` / `createTemplate(template)` / `getTemplate(id)` / `updateTemplate(id, template)` / `deleteTemplate(id)` | Manage email templates |
+| `listInboundMessages({ limit, domain, to, unread })` / `getInboundMessage(id)` | Read received email |
+| `listSmtpPasswords({ domain })` / `createSmtpPassword(domain, { name })` / `deleteSmtpPassword(id)` | SMTP passwords for SMTP apps (the new password is returned once) |
+| `listApiKeys()` / `createApiKey(name, { access, domain })` / `revokeApiKey(id)` | Manage API keys (needs Full access) |
 
 ## Error Handling
 
@@ -155,6 +169,8 @@ try {
     console.log("Rate limited:", error.message);
   } else if (error instanceof ValidationError) {
     console.log("Invalid request:", error.message);
+  } else if (error instanceof APIError && error.missingPermission) {
+    console.log("This key needs the permission:", error.missingPermission);
   } else if (error instanceof APIError) {
     console.log("zaSend API error:", error.message);
   } else {
@@ -180,7 +196,7 @@ Attachments are enabled per account. Build them from files and send:
 ```js
 const { ZaSend, attachmentFromFile } = require("zasend-node");
 
-const client = new ZaSend("sk_live_...", { timeout: 30000 });
+const client = new ZaSend(process.env.ZASEND_API_KEY, { timeout: 30000 });
 await client.sendEmail(
   {
     from: "billing@yourdomain.com",

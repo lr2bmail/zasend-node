@@ -195,3 +195,47 @@ test("verifyWebhookSignatureV2 checks signature and age", () => {
   assert.equal(verifyWebhookSignatureV2(`${body} `, "s3cret", header, { now: 1700000100 }), false);
   assert.equal(verifyWebhookSignatureV2(body, "s3cret", "garbage", { now: 1700000100 }), false);
 });
+
+test("SMTP password, API key and inbox list methods use the right requests", async () => {
+  const calls = [];
+  const client = new ZaSend("key", {
+    baseUrl: "https://example.test/api/v1",
+    fetch: async (url, init) => {
+      calls.push([init.method, url.replace("https://example.test/api/v1", ""), init.body ? JSON.parse(init.body) : null]);
+      return init.method === "DELETE"
+        ? { ok: true, status: 204, async json() { return null; } }
+        : fakeResponse({ ok: true });
+    },
+  });
+  await client.listSmtpPasswords({ domain: "acme.com" });
+  await client.createSmtpPassword("acme.com", { name: "WordPress" });
+  await client.deleteSmtpPassword("pw/1");
+  await client.listApiKeys();
+  await client.createApiKey("Bot", { access: "agent", domain: "acme.com" });
+  await client.revokeApiKey("k1");
+  await client.listInboundMessages({ limit: 5, unread: true });
+  await client.listInboundMessages({ unread: false });
+  assert.deepEqual(calls, [
+    ["GET", "/smtp-passwords?domain=acme.com", null],
+    ["POST", "/smtp-passwords", { domain: "acme.com", name: "WordPress" }],
+    ["DELETE", "/smtp-passwords/pw%2F1", null],
+    ["GET", "/api-keys", null],
+    ["POST", "/api-keys", { name: "Bot", access: "agent", domain: "acme.com" }],
+    ["DELETE", "/api-keys/k1", null],
+    ["GET", "/inbound?limit=5&unread=1", null],
+    ["GET", "/inbound", null],
+  ]);
+});
+
+test("a missing permission is on the error", async () => {
+  const client = new ZaSend("key", {
+    fetch: async () => fakeResponse({ error: "forbidden", message: "This API key doesn't have inbound access",
+                                      missing_permission: "inbound" }, { ok: false, status: 403 }),
+  });
+  await assert.rejects(() => client.listInboundMessages(), (error) => {
+    assert.ok(error instanceof APIError);
+    assert.equal(error.status, 403);
+    assert.equal(error.missingPermission, "inbound");
+    return true;
+  });
+});

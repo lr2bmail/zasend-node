@@ -17,6 +17,8 @@ class APIError extends ZaSendError {
     this.name = "APIError";
     this.status = status;
     this.body = body;
+    // Set on a 403 when the API key lacks a permission, e.g. "inbound".
+    this.missingPermission = body && body.missing_permission ? body.missing_permission : null;
   }
 }
 
@@ -74,6 +76,15 @@ class ZaSend {
       list_unsubscribe: listUnsubscribe,
       list_unsubscribe_post: listUnsubscribePost,
     });
+  }
+
+  // Received messages, newest first, without bodies. options: { limit, domain, to, unread }.
+  async listInboundMessages(options = {}) {
+    const params = { ...options };
+    if (params.unread !== undefined) {
+      params.unread = params.unread ? "1" : undefined;
+    }
+    return this._request("GET", this._pathWithQuery("/inbound", params));
   }
 
   // A received message with its attachment list (no file content).
@@ -157,6 +168,35 @@ class ZaSend {
 
   async deleteTemplate(templateId) {
     return this._request("DELETE", `/templates/${encodeURIComponent(templateId)}`);
+  }
+
+  // SMTP passwords for SMTP apps (WordPress, Laravel...). They only work over SMTP.
+  async listSmtpPasswords(options = {}) {
+    return this._request("GET", this._pathWithQuery("/smtp-passwords", options));
+  }
+
+  // The new password is in `password` and is returned only once.
+  async createSmtpPassword(domain, options = {}) {
+    return this._request("POST", "/smtp-passwords", { domain, ...options });
+  }
+
+  async deleteSmtpPassword(passwordId) {
+    return this._request("DELETE", `/smtp-passwords/${encodeURIComponent(passwordId)}`);
+  }
+
+  // Managing API keys needs a Full access key.
+  async listApiKeys() {
+    return this._request("GET", "/api-keys");
+  }
+
+  // options.access: "sending", "agent", "full" (default) or a list of permissions;
+  // options.domain limits the key to one verified domain. The new key is in `key`, returned once.
+  async createApiKey(name, options = {}) {
+    return this._request("POST", "/api-keys", { name, ...options });
+  }
+
+  async revokeApiKey(keyId) {
+    return this._request("DELETE", `/api-keys/${encodeURIComponent(keyId)}`);
   }
 
   _pathWithQuery(path, params) {
